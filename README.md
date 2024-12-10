@@ -14,5 +14,5 @@ Add `multipool` as a dependency in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-threadpool-rs = "0.1.0"
+multipool = "0.1.0"
 ```
