@@ -16,3 +16,4 @@ categories = ["concurrency", "asynchronous"]
 crossbeam = "0.8"
 
 [dev-dependencies]
+criterion = "0.4"

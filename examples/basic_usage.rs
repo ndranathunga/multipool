@@ -1,5 +1,5 @@
 fn main() {
-    let pool = multipool::ThreadPool::new(4);
+    let pool = multipool::ThreadPoolBuilder::new().num_threads(4).build();
     let handle = pool.spawn(|| {
         println!("Hello from the basic thread pool!");
         10

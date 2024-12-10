@@ -8,6 +8,7 @@ use std::sync::{
 use std::thread;
 
 pub struct WorkerHandle {
+    #[allow(dead_code)]
     id: usize,
     // We might store a thread handle if we want to join threads during shutdown
     thread: Option<thread::JoinHandle<()>>,

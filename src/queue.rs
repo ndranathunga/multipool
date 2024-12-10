@@ -6,6 +6,7 @@ pub struct TaskQueue<T> {
     inner: Arc<SegQueue<T>>,
 }
 
+#[allow(dead_code)]
 impl<T> TaskQueue<T> {
     pub fn new() -> Self {
         Self {

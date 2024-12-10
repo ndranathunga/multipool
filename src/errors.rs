@@ -1,5 +1,6 @@
 //! Error types for the thread pool.
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum PoolError {
     /// Indicates that the pool has been shut down, and no new tasks can be accepted.

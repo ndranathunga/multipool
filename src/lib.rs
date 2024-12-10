@@ -15,4 +15,16 @@ pub mod pool;
 mod queue;
 mod stealer;
 
+use pool::task::BoxedTask;
 pub use pool::{ThreadPool, ThreadPoolBuilder};
+
+pub fn run_traditional(tasks: Vec<BoxedTask>) {
+    let handles: Vec<_> = tasks
+        .into_iter()
+        .map(|task| std::thread::spawn(task))
+        .collect();
+
+    for h in handles {
+        let _ = h.join();
+    }
+}
