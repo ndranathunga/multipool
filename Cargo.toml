@@ -5,11 +5,8 @@ authors = ["Nisal D Ranathunga <nisaldasunpriya@gmail.com>"]
 edition = "2021"
 license = "MIT"
 description = "A configurable thread pool with optional work-stealing support."
-keywords = ["thread", "pool", "concurrency", "work-stealing"]
+keywords = ["thread", "pool", "concurrency", "work-stealing", "threadpool"]
 repository = "https://github.com/ndranathunga/multipool"
-homepage = "https://github.com/yourusername/multipool"
-documentation = "https://docs.rs/multipool"
-readme = "README.md"
 categories = ["concurrency", "asynchronous"]
 
 [dependencies]
