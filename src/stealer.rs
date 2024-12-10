@@ -2,9 +2,9 @@ use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use std::sync::Arc;
 
 pub struct WorkStealingQueues<T> {
-    injector: Arc<Injector<T>>,
-    workers: Vec<Worker<T>>,
-    stealers: Vec<Stealer<T>>,
+    pub injector: Arc<Injector<T>>,
+    pub workers: Vec<Worker<T>>,
+    pub stealers: Vec<Stealer<T>>,
 }
 
 impl<T> WorkStealingQueues<T> {
@@ -26,6 +26,20 @@ impl<T> WorkStealingQueues<T> {
         }
     }
 
+    pub fn new_vectors(num_workers: usize) -> (Arc<Injector<T>>, Vec<Stealer<T>>, Vec<Worker<T>>) {
+        let injector = Arc::new(Injector::new());
+        let mut workers = Vec::with_capacity(num_workers);
+        let mut stealers = Vec::with_capacity(num_workers);
+
+        for _ in 0..num_workers {
+            let w = Worker::new_fifo();
+            stealers.push(w.stealer());
+            workers.push(w);
+        }
+
+        (injector, stealers, workers)
+    }
+
     pub fn push(&self, task: T) {
         self.injector.push(task);
     }
@@ -39,7 +53,11 @@ impl<T> WorkStealingQueues<T> {
 
         // Otherwise, try stealing from injector
         match self.injector.steal_batch(&self.workers[idx]) {
-            Steal::Success(t) => return Some(t),
+            Steal::Success(_) => {
+                if let Some(task) = self.workers[idx].pop() {
+                    return Some(task);
+                }
+            }
             Steal::Empty => {}
             Steal::Retry => {}
         }

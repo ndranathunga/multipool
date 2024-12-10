@@ -2,58 +2,40 @@ mod task;
 mod work_stealing;
 mod worker;
 
-use super::queue::TaskQueue;
-use super::stealer::WorkStealingQueues;
-use task::{spawn_task, BoxedTask, TaskHandle};
-use worker::{worker_loop, WorkerHandle};
-
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 
+use super::queue::TaskQueue;
+use super::stealer::WorkStealingQueues;
+use task::{spawn_task, BoxedTask, TaskHandle};
+use worker::{worker_loop, WorkerHandle};
+
+/// A configurable thread pool that can operate with a simple global queue or in work-stealing mode.
 pub struct ThreadPool {
     running: Arc<AtomicBool>,
     workers: Vec<WorkerHandle>,
     fetch_task: Arc<dyn Fn(usize) -> Option<BoxedTask> + Send + Sync>,
+    submit_task: Arc<dyn Fn(BoxedTask) + Send + Sync>,
     work_stealing: bool,
 }
 
 impl ThreadPool {
-    /// Creates a new thread pool with a given number of threads, using a simple queue.
     pub fn new(num_threads: usize) -> Self {
         ThreadPoolBuilder::new().num_threads(num_threads).build()
     }
 
-    /// Spawn a task into the pool.
     pub fn spawn<F, T>(&self, f: F) -> TaskHandle<T>
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
         let (task, handle) = spawn_task(f);
-        self.submit_task(task);
+        (self.submit_task)(task);
         handle
     }
 
-    fn submit_task(&self, task: BoxedTask) {
-        // The logic for submitting a task depends on whether we have work_stealing enabled.
-        // We'll rely on the closure environment to do the right thing.
-        // If not using work stealing, we had a shared queue. If using work stealing,
-        // we push to the global injector.
-        // This would require that `fetch_task` closure has references to the actual queue structures.
-        // We'll rely on a pattern established in the builder implementation.
-        if self.work_stealing {
-            // We can't directly push here; rely on a closure or store a reference
-            // In a real scenario, we'd store references in ThreadPool.
-            panic!("submit_task should be overridden by builder if using work-stealing");
-        } else {
-            // no-op here because we rely on the fetch_task closure
-            panic!("submit_task should be overridden by builder in normal mode");
-        }
-    }
-
-    /// Gracefully shut down the pool
     pub fn shutdown(mut self) {
         self.running.store(false, Ordering::Release);
         for worker in &mut self.workers {
@@ -62,7 +44,6 @@ impl ThreadPool {
     }
 }
 
-/// A builder pattern for creating a thread pool with configuration.
 pub struct ThreadPoolBuilder {
     num_threads: usize,
     work_stealing: bool,
@@ -90,156 +71,123 @@ impl ThreadPoolBuilder {
         let running = Arc::new(AtomicBool::new(true));
 
         if self.work_stealing {
-            let ws_queues = WorkStealingQueues::new(self.num_threads);
+            // Setup work-stealing structures
+            // Adjust your WorkStealingQueues::new to return these three things:
+            // (Arc<Injector<T>>, Vec<Stealer<T>>, Vec<Worker<T>>)
+            let (injector, stealers, mut workers_local) =
+                WorkStealingQueues::new_vectors(self.num_threads);
+
             let running_clone = Arc::clone(&running);
 
-            // fetch_task closure:
-            let fetch_task = Arc::new(move |id: usize| {
-                if let Some(task) = ws_queues.pop(id) {
-                    return Some(task);
-                }
-                // try stealing:
-                ws_queues.steal_work(id)
-            });
+            let submit_task = {
+                let injector = Arc::clone(&injector);
+                Arc::new(move |task: BoxedTask| {
+                    injector.push(task);
+                }) as Arc<dyn Fn(BoxedTask) + Send + Sync>
+            };
+
+            // We'll store stealers in an Arc so each thread can reference them
+            let stealers = Arc::new(stealers);
 
             let mut workers = Vec::with_capacity(self.num_threads);
+
             for i in 0..self.num_threads {
                 let r = Arc::clone(&running_clone);
-                let ft = Arc::clone(&fetch_task);
+                // Take a worker for this thread
+                let worker = workers_local.remove(0);
+                let injector = Arc::clone(&injector);
+                let stealers_for_thread = Arc::clone(&stealers);
+
+                // Per-thread fetch_task closure
+                // This closure doesn't need to be Send+Sync because it will be moved into
+                // the thread that uses it. It only needs to be 'static because the thread
+                // may outlive the stack frame.
+                let fetch_task = move || {
+                    // First try to pop from this thread's worker
+                    if let Some(task) = worker.pop() {
+                        return Some(task);
+                    }
+
+                    // Try stealing a batch of tasks from the injector
+                    match injector.steal_batch(&worker) {
+                        crossbeam::deque::Steal::Success(t) => {
+                            if let Some(task) = worker.pop() {
+                                return Some(task);
+                            }
+                        }
+                        crossbeam::deque::Steal::Empty | crossbeam::deque::Steal::Retry => {}
+                    }
+
+                    // Try stealing from other workers using their stealers
+                    for st in stealers_for_thread.iter() {
+                        match st.steal() {
+                            crossbeam::deque::Steal::Success(t) => return Some(t),
+                            _ => {}
+                        }
+                    }
+
+                    None
+                };
+
                 let handle = std::thread::spawn(move || {
-                    worker_loop(i, r, ft);
+                    worker_loop(r, fetch_task);
                 });
                 workers.push(WorkerHandle::new(i, handle));
             }
 
-            // We'll implement submit_task by capturing ws_queues
-            let pool = ThreadPool {
+            ThreadPool {
                 running,
                 workers,
-                fetch_task,
+                // fetch_task is no longer stored per pool in this mode
+                // since each thread has its own closure.
+                // Just provide a dummy closure or modify ThreadPool struct to make it optional.
+                fetch_task: Arc::new(|_| None),
+                submit_task,
                 work_stealing: true,
-            };
-
-            // override submit_task for this instance:
-            let submit_fn = {
-                let ws_queues = ws_queues.injector.clone();
-                move |task: BoxedTask| {
-                    ws_queues.push(task);
-                }
-            };
-
-            // We can't easily override methods, but we can store the submission logic
-            // in a closure. Let’s store it in a trait object in ThreadPool:
-            // However, we have a design issue: ThreadPool::submit_task currently
-            // can’t be easily overridden. Let’s refactor ThreadPool to store a submission closure.
-
-            // Updated approach: we will store the submission closure directly in ThreadPool.
-            // Let's modify the code slightly:
-
-            // We'll need a second build method or adjust the design.
-            // For simplicity, let's define a separate struct. But that complicates the demonstration.
-            // Instead, let's define ThreadPool fully here.
-
-            drop(pool); // Drop the incomplete pool and redefine properly below.
-
-            struct ThreadPoolInner {
-                running: Arc<AtomicBool>,
-                workers: Vec<WorkerHandle>,
-                fetch_task: Arc<dyn Fn(usize) -> Option<BoxedTask> + Send + Sync>,
-                submit_task: Box<dyn Fn(BoxedTask) + Send + Sync>,
-                work_stealing: bool,
             }
-
-            let inner = Arc::new(ThreadPoolInner {
-                running: running_clone,
-                workers: workers,
-                fetch_task,
-                submit_task: Box::new(submit_fn),
-                work_stealing: true,
-            });
-
-            // Create a user-facing ThreadPool that delegates to inner
-            ThreadPoolWrapper(inner)
         } else {
+            // Normal queue mode
             let queue = TaskQueue::new();
             let running_clone = Arc::clone(&running);
 
-            let fetch_task = Arc::new(move |_id: usize| queue.pop());
+            let fetch_task = {
+                let queue_clone = queue.clone_inner();
+                Arc::new(move |_id: usize| queue_clone.pop())
+                    as Arc<dyn Fn(usize) -> Option<BoxedTask> + Send + Sync>
+            };
+
+            let submit_task = {
+                let queue_clone = queue.clone_inner();
+                Arc::new(move |task: BoxedTask| {
+                    queue_clone.push(task);
+                }) as Arc<dyn Fn(BoxedTask) + Send + Sync>
+            };
 
             let mut workers = Vec::with_capacity(self.num_threads);
             for i in 0..self.num_threads {
                 let r = Arc::clone(&running_clone);
                 let ft = Arc::clone(&fetch_task);
                 let handle = std::thread::spawn(move || {
-                    worker_loop(i, r, ft);
+                    // Normal mode still uses a shared fetch_task that is Sync
+                    // and can take an ID.
+                    while r.load(Ordering::Acquire) {
+                        if let Some(task) = ft(i) {
+                            task();
+                        } else {
+                            std::thread::yield_now();
+                        }
+                    }
                 });
                 workers.push(WorkerHandle::new(i, handle));
             }
 
-            let submit_fn = {
-                let queue = queue.inner.clone();
-                move |task: BoxedTask| {
-                    queue.push(task);
-                }
-            };
-
-            struct ThreadPoolInner {
-                running: Arc<AtomicBool>,
-                workers: Vec<WorkerHandle>,
-                fetch_task: Arc<dyn Fn(usize) -> Option<BoxedTask> + Send + Sync>,
-                submit_task: Box<dyn Fn(BoxedTask) + Send + Sync>,
-                work_stealing: bool,
-            }
-
-            let inner = Arc::new(ThreadPoolInner {
-                running: running_clone,
+            ThreadPool {
+                running,
                 workers,
                 fetch_task,
-                submit_task: Box::new(submit_fn),
+                submit_task,
                 work_stealing: false,
-            });
-
-            ThreadPoolWrapper(inner)
+            }
         }
     }
-}
-
-// Due to complexity, let's define a wrapper that implements ThreadPool methods.
-use std::ops::Deref;
-
-struct ThreadPoolWrapper(Arc<ThreadPoolInner>);
-
-impl Deref for ThreadPoolWrapper {
-    type Target = ThreadPoolInner;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl ThreadPool for ThreadPoolWrapper {
-    fn spawn<F, T>(&self, f: F) -> TaskHandle<T>
-    where
-        F: FnOnce() -> T + Send + 'static,
-        T: Send + 'static,
-    {
-        let (task, handle) = spawn_task(f);
-        (self.submit_task)(task);
-        handle
-    }
-
-    fn shutdown(mut self) {
-        self.running.store(false, Ordering::Release);
-        for worker in &mut self.workers.iter_mut() {
-            worker.join();
-        }
-    }
-}
-
-pub trait ThreadPool: Sized {
-    fn spawn<F, T>(&self, f: F) -> TaskHandle<T>
-    where
-        F: FnOnce() -> T + Send + 'static,
-        T: Send + 'static;
-
-    fn shutdown(self);
 }

@@ -29,16 +29,14 @@ impl WorkerHandle {
 }
 
 /// Worker thread main loop
-pub fn worker_loop(
-    id: usize,
-    running: Arc<AtomicBool>,
-    fetch_task: Arc<dyn Fn(usize) -> Option<BoxedTask> + Send + Sync>,
-) {
+pub fn worker_loop<F>(running: Arc<AtomicBool>, mut fetch_task: F)
+where
+    F: FnMut() -> Option<BoxedTask>,
+{
     while running.load(Ordering::Acquire) {
-        if let Some(task) = fetch_task(id) {
+        if let Some(task) = fetch_task() {
             task();
         } else {
-            // Optional: use a small sleep or yield to avoid busy spinning
             std::thread::yield_now();
         }
     }
