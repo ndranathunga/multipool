@@ -51,7 +51,7 @@ fn count_threads() -> usize {
     use procfs::process::Process;
 
     let process = Process::myself().expect("Failed to get process info");
-    process.tasks().expect("Failed to get task list").len()
+    process.tasks().expect("Failed to get task list").count()
 }
 
 #[test]
