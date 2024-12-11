@@ -1,6 +1,6 @@
 # Multipool
 
-![rustc](https://img.shields.io/badge/rustc-1.61+-blue?logo=rust)
+![rustc](https://img.shields.io/badge/rustc-1.78+-blue?logo=rust)
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/licenses/MIT)
 [![Crates.io](https://img.shields.io/crates/v/multipool)](https://crates.io/crates/multipool)
 [![Docs](https://docs.rs/multipool/badge.svg)](https://docs.rs/multipool)
