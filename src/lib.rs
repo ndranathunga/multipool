@@ -14,6 +14,7 @@ mod errors;
 pub mod pool;
 mod queue;
 mod stealer;
+mod priority_stealer;
 
 #[allow(dead_code)]
 use pool::task::BoxedTask;

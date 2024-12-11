@@ -48,10 +48,9 @@ impl ThreadPool {
     }
 
     pub fn mode(&self) -> FetchTaskMode {
-        if self._work_stealing {
-            FetchTaskMode::WorkStealing
-        } else {
-            FetchTaskMode::GlobalQueue
+        match self._work_stealing {
+            true => FetchTaskMode::WorkStealing,
+            false => FetchTaskMode::GlobalQueue,
         }
     }
 }
@@ -59,6 +58,7 @@ impl ThreadPool {
 pub struct ThreadPoolBuilder {
     num_threads: usize,
     work_stealing: bool,
+    priority: bool,
 }
 
 impl ThreadPoolBuilder {
@@ -66,6 +66,7 @@ impl ThreadPoolBuilder {
         Self {
             num_threads: 4,
             work_stealing: false,
+            priority: false,
         }
     }
 
@@ -76,6 +77,11 @@ impl ThreadPoolBuilder {
 
     pub fn work_stealing(mut self, enable: bool) -> Self {
         self.work_stealing = enable;
+        self
+    }
+
+    pub fn priority(mut self, enable: bool) -> Self {
+        self.priority = enable;
         self
     }
 
