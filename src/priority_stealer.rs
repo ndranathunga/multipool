@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::metrics::MetricsCollector;
 use crate::pool::task::IPriority;
 use crate::queue::PriorityQueue;
 
@@ -118,6 +119,7 @@ impl<T: std::cmp::Ord + IPriority> PriorityStealer<T> {
 
 pub fn prioritized_work_stealing_queues<T: std::cmp::Ord + IPriority>(
     num_workers: usize,
+    metrics_collector: Option<Arc<dyn MetricsCollector>>,
 ) -> (
     Arc<PriorityInjector<T>>,
     Vec<PriorityStealer<T>>,
@@ -129,6 +131,8 @@ pub fn prioritized_work_stealing_queues<T: std::cmp::Ord + IPriority>(
 
     for _ in 0..num_workers {
         let w = PriorityWorker::new();
+        metrics_collector.as_ref().map(|m| m.on_worker_started());
+
         stealers.push(w.stealer());
         workers.push(w);
     }

@@ -1,5 +1,7 @@
 //! Worker logic for the thread pool
 
+use crate::metrics::MetricsCollector;
+
 use super::task::{BoxedTask, PriorityTask};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -30,28 +32,44 @@ impl WorkerHandle {
 }
 
 /// Worker thread main loop
-pub fn worker_loop<F>(running: Arc<AtomicBool>, mut fetch_task: F)
-where
+pub fn worker_loop<F>(
+    running: Arc<AtomicBool>,
+    mut fetch_task: F,
+    metrics_collector: Option<Arc<dyn MetricsCollector>>,
+) where
     F: FnMut() -> Option<BoxedTask>,
 {
     while running.load(Ordering::Acquire) {
         if let Some(task) = fetch_task() {
+            metrics_collector.as_ref().map(|m| m.on_task_started());
+
             task();
+
+            metrics_collector.as_ref().map(|m| m.on_task_completed());
         } else {
             std::thread::yield_now();
         }
     }
+    metrics_collector.as_ref().map(|m| m.on_worker_stopped());
 }
 
-pub fn priority_worker_loop<F>(running: Arc<AtomicBool>, mut fetch_task: F)
-where
+pub fn priority_worker_loop<F>(
+    running: Arc<AtomicBool>,
+    mut fetch_task: F,
+    metrics_collector: Option<Arc<dyn MetricsCollector>>,
+) where
     F: FnMut() -> Option<PriorityTask>,
 {
     while running.load(Ordering::Acquire) {
         if let Some(pt) = fetch_task() {
+            metrics_collector.as_ref().map(|m| m.on_task_started());
+
             (pt.task)();
+
+            metrics_collector.as_ref().map(|m| m.on_task_completed());
         } else {
             std::thread::yield_now();
         }
     }
+    metrics_collector.as_ref().map(|m| m.on_worker_stopped());
 }

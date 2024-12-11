@@ -7,7 +7,10 @@ use std::sync::{
     Arc,
 };
 
-use crate::{priority_stealer::prioritized_work_stealing_queues, queue::PriorityQueue};
+use crate::{
+    metrics::MetricsCollector, priority_stealer::prioritized_work_stealing_queues,
+    queue::PriorityQueue,
+};
 
 use super::queue::TaskQueue;
 use super::stealer::work_stealing_queues;
@@ -35,6 +38,7 @@ pub struct ThreadPool<M: TaskFetchMode> {
     _fetch_task: FetchTaskType,
     submit_task: SubmitTaskType,
     _work_stealing: bool,
+    metrics_collector: Option<Arc<dyn MetricsCollector>>,
     mode: M,
 }
 
@@ -47,6 +51,10 @@ impl<M: NonPriorityTaskFetchMode> ThreadPool<M> {
         let (task, handle) = spawn_task(f);
         if let SubmitTaskType::Function(submit) = &self.submit_task {
             (submit)(task);
+
+            self.metrics_collector
+                .as_ref()
+                .map(|m| m.on_task_submitted());
         }
         handle
     }
@@ -63,6 +71,10 @@ impl<M: PriorityTaskFetchMode> ThreadPool<M> {
         if let SubmitTaskType::Struct(submit) = &self.submit_task {
             let task = PriorityTask::new(task, Priority(priority));
             (submit)(task);
+
+            self.metrics_collector
+                .as_ref()
+                .map(|m| m.on_task_submitted());
         }
         handle
     }
@@ -89,13 +101,22 @@ pub struct PriorityWorkStealingState; // priority = true, work_stealing = true
 /// Typed-state Builder Pattern
 pub struct ThreadPoolBuilder<S = GlobalQueueMode> {
     num_threads: usize,
+    metrics_collector: Option<Arc<dyn MetricsCollector>>,
     _state: std::marker::PhantomData<S>,
+}
+
+impl<S> ThreadPoolBuilder<S> {
+    pub fn with_metrics_collector(mut self, collector: Arc<dyn MetricsCollector>) -> Self {
+        self.metrics_collector = Some(collector);
+        self
+    }
 }
 
 impl ThreadPoolBuilder<DefaultModeState> {
     pub fn new() -> Self {
         Self {
             num_threads: 4,
+            metrics_collector: None,
             _state: std::marker::PhantomData,
         }
     }
@@ -108,6 +129,7 @@ impl ThreadPoolBuilder<DefaultModeState> {
     pub fn set_work_stealing(self) -> ThreadPoolBuilder<WorkStealingState> {
         ThreadPoolBuilder {
             num_threads: self.num_threads,
+            metrics_collector: self.metrics_collector,
             _state: std::marker::PhantomData,
         }
     }
@@ -115,6 +137,7 @@ impl ThreadPoolBuilder<DefaultModeState> {
     pub fn enable_priority(self) -> ThreadPoolBuilder<PriorityState> {
         ThreadPoolBuilder {
             num_threads: self.num_threads,
+            metrics_collector: self.metrics_collector,
             _state: std::marker::PhantomData,
         }
     }
@@ -140,22 +163,37 @@ impl ThreadPoolBuilder<DefaultModeState> {
 
         let mut workers = Vec::with_capacity(self.num_threads);
         let running_clone = Arc::clone(&running);
+        let metrics_collector = self.metrics_collector.clone();
 
         for i in 0..self.num_threads {
             let r = Arc::clone(&running_clone);
+            let metrics_collector_clone = self.metrics_collector.clone();
             let ft = Arc::clone(&fetch_task);
             let handle = std::thread::spawn(move || {
                 // Normal mode uses a shared fetch_task that is Sync
                 // and can take an ID.
                 while r.load(Ordering::Acquire) {
                     if let Some(task) = ft(i) {
+                        metrics_collector_clone
+                            .as_ref()
+                            .map(|m| m.on_task_started());
+
                         task();
+
+                        metrics_collector_clone
+                            .as_ref()
+                            .map(|m| m.on_task_completed());
                     } else {
                         std::thread::yield_now();
                     }
                 }
+
+                metrics_collector_clone
+                    .as_ref()
+                    .map(|m| m.on_worker_stopped());
             });
             workers.push(WorkerHandle::new(i, handle));
+            metrics_collector.as_ref().map(|m| m.on_worker_started());
         }
 
         ThreadPool::<GlobalQueueMode> {
@@ -164,6 +202,7 @@ impl ThreadPoolBuilder<DefaultModeState> {
             _fetch_task: FetchTaskType::Function(fetch_task),
             submit_task: SubmitTaskType::Function(submit_task),
             _work_stealing: false,
+            metrics_collector: self.metrics_collector,
             mode: GlobalQueueMode,
         }
     }
@@ -173,6 +212,7 @@ impl ThreadPoolBuilder<WorkStealingState> {
     pub fn enable_priority(self) -> ThreadPoolBuilder<PriorityWorkStealingState> {
         ThreadPoolBuilder {
             num_threads: self.num_threads,
+            metrics_collector: self.metrics_collector,
             _state: std::marker::PhantomData,
         }
     }
@@ -181,7 +221,9 @@ impl ThreadPoolBuilder<WorkStealingState> {
         let running = Arc::new(AtomicBool::new(true));
 
         // Non-priority work-stealing mode
-        let (injector, stealers, mut workers_local) = work_stealing_queues(self.num_threads);
+        let metrics_collector_clone = self.metrics_collector.clone();
+        let (injector, stealers, mut workers_local) =
+            work_stealing_queues(self.num_threads, metrics_collector_clone);
 
         // ! Checkout this pattern
         let submit_task = {
@@ -197,6 +239,8 @@ impl ThreadPoolBuilder<WorkStealingState> {
 
         for i in 0..self.num_threads {
             let r = Arc::clone(&running_clone);
+            let metrics_collector_clone = self.metrics_collector.clone();
+
             // Take a worker for this thread
             let worker = workers_local.remove(0);
             let injector = Arc::clone(&injector);
@@ -234,7 +278,7 @@ impl ThreadPoolBuilder<WorkStealingState> {
             };
 
             let handle = std::thread::spawn(move || {
-                worker_loop(r, fetch_task);
+                worker_loop(r, fetch_task, metrics_collector_clone);
             });
             workers.push(WorkerHandle::new(i, handle));
         }
@@ -247,6 +291,7 @@ impl ThreadPoolBuilder<WorkStealingState> {
             _fetch_task: FetchTaskType::Function(Arc::new(|_| None)),
             submit_task: SubmitTaskType::Function(submit_task),
             _work_stealing: true,
+            metrics_collector: self.metrics_collector,
             mode: WorkStealingMode,
         }
     }
@@ -274,23 +319,39 @@ impl ThreadPoolBuilder<PriorityState> {
 
         let mut workers = Vec::with_capacity(self.num_threads);
         let running_clone = Arc::clone(&running);
+        let metrics_collector = self.metrics_collector.clone();
 
         for i in 0..self.num_threads {
             let r = Arc::clone(&running_clone);
+            let metrics_collector_clone = self.metrics_collector.clone();
+
             let ft = Arc::clone(&fetch_task);
             let handle = std::thread::spawn(move || {
                 // Normal mode uses a shared fetch_task that is Sync
                 // and can take an ID.
+                // ? TODO: Try to move this to a separate function (worker_loop)
                 while r.load(Ordering::Acquire) {
                     if let Some(pt) = ft(i) {
+                        metrics_collector_clone
+                            .as_ref()
+                            .map(|m| m.on_task_started());
+
                         // Passing the ID doesn't matter in this mode
                         (pt.task)();
+
+                        metrics_collector_clone
+                            .as_ref()
+                            .map(|m| m.on_task_completed());
                     } else {
                         std::thread::yield_now();
                     }
                 }
+                metrics_collector_clone
+                    .as_ref()
+                    .map(|m| m.on_worker_stopped());
             });
             workers.push(WorkerHandle::new(i, handle));
+            metrics_collector.as_ref().map(|m| m.on_worker_started());
         }
 
         ThreadPool::<PriorityGlobalQueueMode> {
@@ -299,6 +360,7 @@ impl ThreadPoolBuilder<PriorityState> {
             _fetch_task: FetchTaskType::Struct(fetch_task),
             submit_task: SubmitTaskType::Struct(submit_task),
             _work_stealing: false,
+            metrics_collector: self.metrics_collector,
             mode: PriorityGlobalQueueMode,
         }
     }
@@ -309,8 +371,9 @@ impl ThreadPoolBuilder<PriorityWorkStealingState> {
         let running = Arc::new(AtomicBool::new(true));
 
         // Non-priority work-stealing mode
+        let metrics_collector_clone = self.metrics_collector.clone();
         let (injector, stealers, mut workers_local) =
-            prioritized_work_stealing_queues(self.num_threads);
+            prioritized_work_stealing_queues(self.num_threads, metrics_collector_clone);
 
         let submit_task = {
             let injector = Arc::clone(&injector);
@@ -325,6 +388,8 @@ impl ThreadPoolBuilder<PriorityWorkStealingState> {
 
         for i in 0..self.num_threads {
             let r = Arc::clone(&running_clone);
+            let metrics_collector_clone = self.metrics_collector.clone();
+
             // Take a worker for this thread
             let worker = workers_local.remove(0);
             let injector = Arc::clone(&injector);
@@ -354,8 +419,7 @@ impl ThreadPoolBuilder<PriorityWorkStealingState> {
                 // Try stealing from other workers using their stealers
                 for st in stealers_for_thread.iter() {
                     match st.steal() {
-                        crate::priority_stealer::Steal::Success(t) => {
-                            return Some(t)},
+                        crate::priority_stealer::Steal::Success(t) => return Some(t),
                         _ => {}
                     }
                 }
@@ -364,7 +428,7 @@ impl ThreadPoolBuilder<PriorityWorkStealingState> {
             };
 
             let handle = std::thread::spawn(move || {
-                priority_worker_loop(r, fetch_task);
+                priority_worker_loop(r, fetch_task, metrics_collector_clone);
             });
             workers.push(WorkerHandle::new(i, handle));
         }
@@ -377,6 +441,7 @@ impl ThreadPoolBuilder<PriorityWorkStealingState> {
             _fetch_task: FetchTaskType::Struct(Arc::new(|_| None)),
             submit_task: SubmitTaskType::Struct(submit_task),
             _work_stealing: true,
+            metrics_collector: self.metrics_collector,
             mode: PriorityWorkStealingMode,
         }
     }

@@ -12,6 +12,7 @@
 
 mod errors;
 pub mod pool;
+pub mod metrics;
 mod priority_stealer;
 mod queue;
 mod stealer;
