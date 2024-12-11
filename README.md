@@ -82,7 +82,7 @@ fn main() {
 
 In this example:
 
-- Tasks with higher priority (higher `i` values) will execute before lower-priority tasks.
+- Tasks with higher priority (low `i` values) will execute before lower-priority tasks.
 - The `spawn_with_priority` method allows you to specify the priority level for each task.
 
 ### Using `TaskHandle` to Retrieve Results
