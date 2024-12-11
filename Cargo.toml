@@ -1,6 +1,6 @@
 [package]
 name = "multipool"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Nisal D Ranathunga <nisaldasunpriya@gmail.com>"]
 edition = "2021"
 license = "MIT"
@@ -13,4 +13,4 @@ categories = ["concurrency", "asynchronous"]
 crossbeam = "0.8"
 
 [dev-dependencies]
-criterion = "0.4"
+criterion = "0.5"
