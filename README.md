@@ -7,7 +7,8 @@
 - **Configurable Threads:** Specify the number of worker threads for concurrent task handling.
 - **Global Queue or Work-Stealing:** Choose between simple global queues or efficient work-stealing for load balancing.
 - **Priority Scheduling:** Assign priorities to tasks for more control over execution order.
-- **Graceful Shutdown:** Ensure all tasks complete properly before shutting down.
+<!-- - **Graceful Shutdown:** Ensure all tasks complete properly before shutting down. -->
+- **Metrics and Monitoring:** Track active threads, queued tasks, running tasks and completed tasks in real-time.
 
 ## Installation
 
@@ -110,6 +111,66 @@ In this example:
 - The `spawn` method returns a `TaskHandle`.
 - The `join` method blocks until the task completes and retrieves the result.
 - Ensure to handle potential errors from `join` gracefully, such as using `unwrap` or other error-handling mechanisms.
+
+### Live Metrics Monitoring
+
+With version `0.2.3`, **Multipool** introduces live metrics monitoring to track the thread pool's performance in real-time. You can monitor the following metrics:
+
+- **Queued Tasks:** The number of tasks waiting to be executed.
+- **Running Tasks:** The number of tasks currently being executed.
+- **Completed Tasks:** The number of tasks that have finished execution.
+- **Active Threads:** The number of threads currently active in the thread pool.
+
+Example:
+
+```rust
+use multipool::{ThreadPoolBuilder, metrics::{AtomicMetricsCollector, ThreadPoolMetrics}};
+use std::sync::Arc;
+use std::time::Duration;
+use std::thread;
+
+fn main() {
+    // Create metrics and collector
+    let metrics = Arc::new(ThreadPoolMetrics::new());
+    let collector = Arc::new(AtomicMetricsCollector::new(metrics.clone()));
+
+    // Create a thread pool with the metrics collector
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(4)
+        .with_metrics_collector(collector)
+        .build();
+
+    for i in 0..10 {
+        pool.spawn(move || {
+            println!("Task {} running", i);
+            thread::sleep(Duration::from_millis(100)); // Simulated work
+        });
+    }
+
+    // Spawn a monitoring thread
+    let metrics_clone = metrics.clone();
+    let monitor_handle = thread::spawn(move || {
+        for _ in 0..10 {
+            println!("\n--- Metrics ---");
+            println!("Queued tasks: {}", metrics_clone.queued_tasks.load(Ordering::SeqCst));
+            println!("Running tasks: {}", metrics_clone.running_tasks.load(Ordering::SeqCst));
+            println!("Completed tasks: {}", metrics_clone.completed_tasks.load(Ordering::SeqCst));
+            println!("Active threads: {}", metrics_clone.active_threads.load(Ordering::SeqCst));
+
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    pool.shutdown();
+    monitor_handle.join().unwrap();
+}
+```
+
+In this example:
+
+- Metrics are updated in real-time by the thread pool.
+- A monitoring thread periodically logs the metrics to the terminal.
+- The metrics are accessible through the `ThreadPoolMetrics` struct, which uses atomic counters for thread-safe updates.
 
 ## Documentation
 
