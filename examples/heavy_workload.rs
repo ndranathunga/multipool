@@ -9,7 +9,7 @@ fn cpu_task(n: u64) -> u64 {
 
 fn main() {
     let num_threads = 12;
-    let num_tasks = 1_000_000;
+    let num_tasks = 100_000;
 
     // Measure time for thread pool
     let pool_start = Instant::now();
@@ -24,7 +24,7 @@ fn main() {
     for _ in 0..num_tasks {
         pool_handles.push(pool.spawn_with_priority(
             move || {
-                let x = cpu_task(10_000);
+                let x = cpu_task(100_000);
                 x
             },
             rand::thread_rng().gen_range(0..=10),
@@ -56,7 +56,7 @@ fn main() {
     for _ in 0..num_tasks {
         pool_handles.push(pool.spawn_with_priority(
             move || {
-                let x = cpu_task(10_000);
+                let x = cpu_task(100_000);
                 x
             },
             rand::thread_rng().gen_range(0..=10),
@@ -82,7 +82,7 @@ fn main() {
     let mut thread_handles = Vec::with_capacity(num_tasks);
     for _ in 0..num_tasks {
         thread_handles.push(thread::spawn(move || {
-            let _ = cpu_task(10_000);
+            let _ = cpu_task(100_000);
         }));
     }
 
