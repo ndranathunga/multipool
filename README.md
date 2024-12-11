@@ -1,5 +1,10 @@
 # Multipool
 
+![rustc](https://img.shields.io/badge/rustc-1.61+-blue?logo=rust)
+[![License](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/licenses/MIT)
+[![Crates.io](https://img.shields.io/crates/v/multipool)](https://crates.io/crates/multipool)
+[![Docs](https://docs.rs/multipool/badge.svg)](https://docs.rs/multipool)
+
 **Multipool** is a Rust library that provides a configurable and efficient thread pool with optional work-stealing capabilities. It allows you to easily spawn tasks and handle concurrent workloads, while also offering a builder API to customize the number of threads and choose between the global queue or the work-stealing mode.
 
 ## Features
@@ -7,8 +12,8 @@
 - **Configurable Threads:** Specify the number of worker threads for concurrent task handling.
 - **Global Queue or Work-Stealing:** Choose between simple global queues or efficient work-stealing for load balancing.
 - **Priority Scheduling:** Assign priorities to tasks for more control over execution order.
-<!-- - **Graceful Shutdown:** Ensure all tasks complete properly before shutting down. -->
 - **Metrics and Monitoring:** Track active threads, queued tasks, running tasks and completed tasks in real-time.
+<!-- - **Graceful Shutdown:** Ensure all tasks complete properly before shutting down. -->
 
 ## Installation
 
