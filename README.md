@@ -28,7 +28,7 @@ use multipool::ThreadPoolBuilder;
 fn main() {
     let pool = ThreadPoolBuilder::new()
         .num_threads(4)
-        .work_stealing(true)
+        .set_work_stealing()
         .build();
 
     for i in 0..10 {

@@ -7,7 +7,6 @@ license = "MIT"
 description = "A configurable thread pool with optional work-stealing support and task priority scheduling."
 keywords = [
     "thread",
-    "pool",
     "concurrency",
     "work-stealing",
     "threadpool",
