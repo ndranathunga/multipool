@@ -12,17 +12,18 @@ categories = ["concurrency", "asynchronous"]
 [dependencies]
 crossbeam = "0.8"
 
-[dev-dependencies]
-criterion = "0.5"
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(target_os = "linux")'.dev-dependencies]
 procfs = "0.14"
 
-[target.'cfg(target_os = "windows")'.dependencies]
+[target.'cfg(target_os = "windows")'.dev-dependencies]
 winapi = { version = "0.3", features = [
     "processthreadsapi",
     "tlhelp32",
     "handleapi",
 ] }
+
+[dev-dependencies]
+criterion = "0.5"
 
 [features]
 bench = []
