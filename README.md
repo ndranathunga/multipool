@@ -57,4 +57,33 @@ fn main() {
 }
 ```
 
-###
+### Using `TaskHandle` to Retrieve Results
+
+In some cases, you might want to retrieve the result of a task after it completes. This can be done using the `TaskHandle` returned by the `spawn` method.
+
+```rust
+fn main() {
+    let pool = multipool::ThreadPoolBuilder::new().num_threads(4).build();
+
+    let handle = pool.spawn(|| {
+        println!("Hello from the thread pool!");
+        10 // Returning a value from the task
+    });
+
+    let res = handle.join().unwrap(); // Wait for the task to complete and retrieve the result
+    println!("Result from task: {}", res);
+
+    pool.shutdown();
+}
+```
+
+In this example:
+
+- The `spawn` method returns a `TaskHandle`.
+- The `join` method blocks until the task completes and retrieves the result.
+- Ensure to handle potential errors from `join` gracefully, such as using `unwrap` or other error-handling mechanisms.
+
+## Feedback
+
+If you encounter any issues or have feature requests, please open an issue in the [GitHub repository issues](https://github.com/ndranathunga/multipool/issues).
+
