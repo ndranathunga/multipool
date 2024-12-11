@@ -4,7 +4,7 @@ Following are some suggested features and enhancements by ChatGPT what would con
 
 ## High Priority
 
-- [ ] **Task Prioritization**
+- [x] **Task Prioritization**
 
   - Allow tasks to have different priority levels (e.g., high, medium, low).
   - Implement scheduling logic to execute higher-priority tasks first.
