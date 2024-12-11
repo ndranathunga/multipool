@@ -1,13 +1,6 @@
-use std::{
-    cmp::Reverse,
-    collections::BinaryHeap,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
-    },
-};
+use std::sync::Arc;
 
-use crate::pool::task::{IPriority, Priority};
+use crate::pool::task::IPriority;
 use crate::queue::PriorityQueue;
 
 pub enum Steal<T> {
@@ -20,6 +13,7 @@ pub struct PriorityInjector<T> {
     global_queue: Arc<PriorityQueue<T>>,
 }
 
+#[allow(dead_code)]
 impl<T: std::cmp::Ord + IPriority> PriorityInjector<T> {
     pub fn new() -> Self {
         PriorityInjector {
@@ -37,8 +31,8 @@ impl<T: std::cmp::Ord + IPriority> PriorityInjector<T> {
         self.global_queue.pop()
     }
 
-    pub fn steal_batch(&self, dest: PriorityWorker<T>) -> Steal<()> {
-        let count = dest.local_counter.load(Ordering::SeqCst);
+    pub fn steal_batch(&self, dest: &PriorityWorker<T>) -> Steal<()> {
+        let count = self.global_queue.len();
         if count == 0 {
             return Steal::Empty;
         }
@@ -46,7 +40,7 @@ impl<T: std::cmp::Ord + IPriority> PriorityInjector<T> {
         let mut stolen = Vec::new();
 
         // Steal half of the tasks
-        for _ in 0..(count + 1) / 2 {
+        for _ in 0..((count + 1) / 2) {
             // ! FIXME: This could potentially be wrong. Need proper investigation.
             if let Some(task) = self.global_queue.pop() {
                 stolen.push(task);
@@ -63,48 +57,37 @@ impl<T: std::cmp::Ord + IPriority> PriorityInjector<T> {
 
 /// A worker with a local priority queue.
 pub struct PriorityWorker<T> {
-    local: Arc<Mutex<BinaryHeap<Reverse<(Priority, usize, T)>>>>,
-    local_counter: Arc<AtomicUsize>,
+    local: Arc<PriorityQueue<T>>,
 }
 
+#[allow(dead_code)]
 impl<T: std::cmp::Ord + IPriority> PriorityWorker<T> {
     pub fn new() -> Self {
         PriorityWorker {
-            local: Arc::new(Mutex::new(BinaryHeap::new())),
-            local_counter: Arc::new(AtomicUsize::new(0)),
+            local: Arc::new(PriorityQueue::new()),
         }
     }
 
     /// Push a task into the local worker queue with given priority.
-    pub fn push(&self, task: T, priority: Priority) {
-        let count = self.local_counter.fetch_add(1, Ordering::SeqCst);
-        let mut heap = self.local.lock().unwrap();
-        heap.push(std::cmp::Reverse((priority, count, task)));
+    pub fn push(&self, task: T) {
+        self.local.push(task);
     }
 
     pub(self) fn push_batch(&self, items: Vec<T>) {
-        let mut heap = self.local.lock().unwrap();
-        for (_, item) in items.into_iter().enumerate() {
-            heap.push(std::cmp::Reverse((
-                item.priority(),
-                self.local_counter.fetch_add(1, Ordering::SeqCst),
-                item,
-            )));
+        for item in items {
+            self.local.push(item);
         }
     }
 
     /// Pop the highest priority task from the local queue.
     pub fn pop(&self) -> Option<T> {
-        let mut heap = self.local.lock().unwrap();
-        self.local_counter.fetch_sub(1, Ordering::SeqCst);
-        heap.pop().map(|std::cmp::Reverse((_, _, task))| task)
+        self.local.pop()
     }
 
     /// Create a stealer that can steal tasks from this worker’s queue.
     pub fn stealer(&self) -> PriorityStealer<T> {
         PriorityStealer {
             local: Arc::clone(&self.local),
-            local_counter: Arc::clone(&self.local_counter),
         }
     }
 }
@@ -113,32 +96,23 @@ impl<T> Clone for PriorityWorker<T> {
     fn clone(&self) -> Self {
         PriorityWorker {
             local: Arc::clone(&self.local),
-            local_counter: Arc::clone(&self.local_counter),
         }
     }
 }
 
 /// A stealer that can steal tasks from a worker's local queue.
 pub struct PriorityStealer<T> {
-    local: Arc<Mutex<BinaryHeap<Reverse<(Priority, usize, T)>>>>,
-    local_counter: Arc<AtomicUsize>,
+    local: Arc<PriorityQueue<T>>,
 }
 
 impl<T: std::cmp::Ord + IPriority> PriorityStealer<T> {
     /// Steal tries to pop a task from the associated worker’s queue.
     pub fn steal(&self) -> Steal<T> {
-        let mut heap = self.local.lock().unwrap();
-        let count = self.local_counter.load(Ordering::SeqCst);
-        if count == 0 {
+        if self.local.len() == 0 {
             return Steal::Empty;
         }
 
-        if let Some(std::cmp::Reverse((_, _, task))) = heap.pop() {
-            self.local_counter.fetch_sub(1, Ordering::SeqCst);
-            return Steal::Success(task);
-        } else {
-            return Steal::Retry;
-        }
+        self.local.pop().map_or(Steal::Retry, Steal::Success)
     }
 }
 

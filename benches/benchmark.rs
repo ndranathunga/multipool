@@ -67,7 +67,7 @@ fn benchmark_work_stealing(c: &mut Criterion) {
             || {
                 let pool = ThreadPoolBuilder::new()
                     .num_threads(num_threads)
-                    .work_stealing(true)
+                    .set_work_stealing()
                     .build();
                 let tasks = prepare_tasks(num_tasks);
                 (pool, tasks)

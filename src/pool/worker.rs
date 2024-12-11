@@ -1,6 +1,6 @@
 //! Worker logic for the thread pool
 
-use super::task::BoxedTask;
+use super::task::{BoxedTask, PriorityTask};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -37,6 +37,19 @@ where
     while running.load(Ordering::Acquire) {
         if let Some(task) = fetch_task() {
             task();
+        } else {
+            std::thread::yield_now();
+        }
+    }
+}
+
+pub fn priority_worker_loop<F>(running: Arc<AtomicBool>, mut fetch_task: F)
+where
+    F: FnMut() -> Option<PriorityTask>,
+{
+    while running.load(Ordering::Acquire) {
+        if let Some(pt) = fetch_task() {
+            (pt.task)();
         } else {
             std::thread::yield_now();
         }

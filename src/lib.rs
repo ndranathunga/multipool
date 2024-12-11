@@ -12,13 +12,14 @@
 
 mod errors;
 pub mod pool;
+mod priority_stealer;
 mod queue;
 mod stealer;
-mod priority_stealer;
 
 #[allow(dead_code)]
+#[allow(unused_imports)]
 use pool::task::BoxedTask;
-pub use pool::{ThreadPool, ThreadPoolBuilder};
+pub use pool::ThreadPoolBuilder;
 
 // only available on debug, testing or benchmarking modes
 #[cfg(any(debug_assertions, test, feature = "bench"))]

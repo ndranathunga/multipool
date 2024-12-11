@@ -3,7 +3,7 @@ use multipool::ThreadPoolBuilder;
 fn main() {
     let pool = ThreadPoolBuilder::new()
         .num_threads(4)
-        .work_stealing(true)
+        .set_work_stealing()
         .build();
     let handle = pool.spawn(|| {
         println!("Hello from the work-stealing thread pool!");

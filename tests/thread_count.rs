@@ -1,4 +1,4 @@
-use multipool::ThreadPool;
+use multipool::ThreadPoolBuilder;
 
 #[cfg(target_os = "windows")]
 fn count_threads() -> usize {
@@ -59,7 +59,7 @@ fn test_threadpool_threads_lifecycle() {
     let initial_thread_count = count_threads();
 
     let num_threads = 4;
-    let threadpool = ThreadPool::new(num_threads);
+    let threadpool = ThreadPoolBuilder::new().num_threads(num_threads).build();
 
     // Wait for a short duration to allow threads to start
     std::thread::sleep(std::time::Duration::from_millis(100));
