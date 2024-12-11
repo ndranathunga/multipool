@@ -15,9 +15,12 @@ pub mod pool;
 mod queue;
 mod stealer;
 
+#[allow(dead_code)]
 use pool::task::BoxedTask;
 pub use pool::{ThreadPool, ThreadPoolBuilder};
 
+// only available on debug, testing or benchmarking modes
+#[cfg(any(debug_assertions, test, feature = "bench"))]
 pub fn run_traditional(tasks: Vec<BoxedTask>) {
     let handles: Vec<_> = tasks
         .into_iter()
