@@ -128,8 +128,59 @@
 //!
 //! pool.shutdown();
 //! ```
+//!
+//! ### Using Macros
+//!
+//! #### `spawn_task`
+//! Simplifies spawning tasks into the thread pool.
+//!
+//! ##### Example
+//! ```rust
+//! use multipool::{ThreadPoolBuilder, spawn_task};
+//!
+//! let pool = ThreadPoolBuilder::new().build();
+//!
+//! // Spawn a task without priority
+//! let handle = spawn_task!(pool, || println!("Task without priority"));
+//!
+//! // Spawn a task with priority
+//! let priority_handle = spawn_task!(pool, || println!("Task with priority"), priority: 1);
+//!
+//! handle.join().unwrap();
+//! priority_handle.join().unwrap();
+//! pool.shutdown();
+//! ```
+//!
+//! #### `log_metrics`
+//! Logs the current metrics of the thread pool, such as queued and running tasks.
+//!
+//! ##### Example
+//! ```rust
+//! use multipool::{metrics::{ThreadPoolMetrics, AtomicMetricsCollector}, ThreadPoolBuilder, log_metrics};
+//! use std::sync::Arc;
+//!
+//! let metrics = Arc::new(ThreadPoolMetrics::new());
+//! let collector = Arc::new(AtomicMetricsCollector::new(metrics.clone()));
+//! let pool = ThreadPoolBuilder::new().with_metrics_collector(collector).build();
+//!
+//! log_metrics!(metrics);
+//! pool.shutdown();
+//! ```
+//!
+//! #### `create_thread_pool`
+//! Creates a thread pool with various configurations.
+//!
+//! ##### Example
+//! ```rust
+//! use multipool::create_thread_pool;
+//!
+//! let pool = create_thread_pool!(num_threads: 8, work_stealing: true, priority: true);
+//! pool.shutdown();
+//! ```
 
+#![warn(missing_docs)]
 mod errors;
+mod macros;
 pub mod metrics;
 pub mod pool;
 mod priority_stealer;
@@ -140,6 +191,9 @@ mod stealer;
 #[allow(unused_imports)]
 use pool::task::BoxedTask;
 pub use pool::ThreadPoolBuilder;
+
+#[allow(unused_imports)]
+pub use macros::*;
 
 /// Runs a set of tasks in traditional multi-threading mode (without the thread pool).
 ///

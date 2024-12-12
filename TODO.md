@@ -19,7 +19,7 @@ Following are some suggested features and enhancements by ChatGPT what would con
   - Add support for task timeouts to cancel tasks exceeding a specified duration.
   - Provide APIs for canceling pending tasks.
 
-- [ ] **Monitoring and Metrics**
+- [x] **Monitoring and Metrics**
 
   - Track active threads, queued tasks, and completed tasks.
   - Add metrics hooks for users to gather performance insights.
@@ -29,6 +29,18 @@ Following are some suggested features and enhancements by ChatGPT what would con
   - Expose hooks for logging and error reporting.
 
 ## Medium Priority
+
+- [ ] **Round-Robin and Least-Loaded First** 
+  
+  - can be added as simple, configurable modes for non-priority tasks.
+
+- [ ] **Hash-Based and Affinity-Based** 
+
+  - are useful for systems with shared state or specific hardware requirements.
+
+- [ ] **Feedback-Driven or Hierarchical Load Balancing** 
+
+  - are more advanced approaches that would increase the library's adaptability for dynamic or large-scale systems.
 
 - [ ] **Thread Affinity**
 
