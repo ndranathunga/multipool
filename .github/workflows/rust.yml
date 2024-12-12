@@ -28,6 +28,9 @@ jobs:
           cargo build --release
           cargo test
 
+      - name: Create Benchmark Results Directory
+        run: mkdir -p bench_results
+
       - name: Run Benchmarks
         run: cargo bench --features bench -- --output-format=json > bench_results/results.json
 
@@ -84,6 +87,9 @@ jobs:
         run: |
           cargo build --release
           cargo test
+
+      - name: Create Benchmark Results Directory
+        run: mkdir -p bench_results
 
       - name: Run Benchmarks
         run: cargo bench --features bench -- --output-format=json > benchmark_results/results.json
