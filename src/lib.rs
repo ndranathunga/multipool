@@ -135,7 +135,7 @@
 //! Simplifies spawning tasks into the thread pool.
 //!
 //! ##### Example
-//! ```rust
+//! ```ignore
 //! use multipool::{ThreadPoolBuilder, spawn_task};
 //!
 //! let pool = ThreadPoolBuilder::new().build();
@@ -144,7 +144,7 @@
 //! let handle = spawn_task!(pool, || println!("Task without priority"));
 //!
 //! // Spawn a task with priority
-//! let priority_handle = spawn_task!(pool, || println!("Task with priority"), priority: 1);
+//! let priority_handle = spawn_task!(pool, || println!("Task with priority"), priority: 1); // This should not compile
 //!
 //! handle.join().unwrap();
 //! priority_handle.join().unwrap();

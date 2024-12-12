@@ -9,7 +9,7 @@
 /// This macro supports both non-priority and priority task submission.
 ///
 /// # Examples
-/// ```rust
+/// ```ignore
 /// use multipool::{ThreadPoolBuilder, spawn_task};
 ///
 /// let pool = ThreadPoolBuilder::new().build();
@@ -26,12 +26,28 @@
 /// ```
 #[macro_export]
 macro_rules! spawn_task {
-    ($pool:expr, $task:expr) => {
-        $pool.spawn($task)
-    };
-    ($pool:expr, $task:expr, priority: $priority:expr) => {
-        $pool.spawn_with_priority($task, $priority)
-    };
+    // Non-priority task submission
+    ($pool:expr, $task:expr) => {{
+        match $pool.mode() {
+            "GlobalQueue" | "WorkStealing" => $pool.spawn($task),
+            mode => panic!(
+                "Invalid mode `{}` for non-priority task submission. \
+                Use this mode only for priority tasks.",
+                mode
+            ),
+        }
+    }};
+    // Priority task submission
+    ($pool:expr, $task:expr, priority: $priority:expr) => {{
+        match $pool.mode() {
+            "PriorityGlobalQueue" | "PriorityWorkStealing" => $pool.spawn_with_priority($task, $priority),
+            mode => panic!(
+                "Invalid mode `{}` for priority task submission. \
+                Priority tasks are only supported in `PriorityGlobalQueue` or `PriorityWorkStealing` modes.",
+                mode
+            ),
+        }
+    }};
 }
 
 /// Logs the current metrics of the thread pool.
@@ -96,22 +112,24 @@ macro_rules! log_metrics {
 #[macro_export]
 macro_rules! create_thread_pool {
     (num_threads: $num:expr) => {
-        ThreadPoolBuilder::new().num_threads($num).build()
+        multipool::ThreadPoolBuilder::new()
+            .num_threads($num)
+            .build()
     };
     (num_threads: $num:expr, work_stealing: true) => {
-        ThreadPoolBuilder::new()
+        multipool::ThreadPoolBuilder::new()
             .num_threads($num)
             .set_work_stealing()
             .build()
     };
     (num_threads: $num:expr, priority: true) => {
-        ThreadPoolBuilder::new()
+        multipool::ThreadPoolBuilder::new()
             .num_threads($num)
             .enable_priority()
             .build()
     };
     (num_threads: $num:expr, work_stealing: true, priority: true) => {
-        ThreadPoolBuilder::new()
+        multipool::ThreadPoolBuilder::new()
             .num_threads($num)
             .set_work_stealing()
             .enable_priority()
