@@ -1,6 +1,6 @@
 [package]
 name = "multipool"
-version = "0.2.3"
+version = "0.2.5"
 authors = ["Nisal D Ranathunga <nisaldasunpriya@gmail.com>"]
 edition = "2021"
 license = "MIT"
@@ -13,6 +13,7 @@ keywords = [
     "priority",
 ]
 repository = "https://github.com/ndranathunga/multipool"
+documentation = "https://docs.rs/multipool"
 categories = ["concurrency", "asynchronous"]
 
 [dependencies]
