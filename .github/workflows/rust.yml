@@ -17,10 +17,10 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install Rust
+      - name: Install Rust (MSRV)
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.78.0 # Minimum Supported Rust Version (MSRV)
+          toolchain: 1.78.0
           override: true
 
       - name: Build and Test
@@ -28,13 +28,54 @@ jobs:
           cargo build --release
           cargo test
 
-      - name: Create Benchmark Results Directory
-        run: |
-          mkdir -p bench_results 
-          touch bench_results/results.json
-
       - name: Run Benchmarks
-        run: cargo bench --features bench -- -- --output-format=json > bench_results/results.json
+        run: cargo bench --features bench
+
+      # Parse benchmark results from target/criterion directories
+      - name: Parse Benchmark Results
+        run: |
+          # We will use Node.js to parse and gather the benchmark data.
+          # Install glob for easier file matching
+          npm install glob
+        shell: bash
+
+      - name: Create Consolidated Benchmark Results
+        id: create_results
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const glob = require('glob');
+
+            // Find all estimates.json files in the "new" directories
+            // Ignore "report" directories
+            const files = glob.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
+
+            const benchmarks = [];
+            for (const file of files) {
+              const estimates = JSON.parse(fs.readFileSync(file, 'utf8'));
+              // The benchmark name can be derived from the directory structure
+              // e.g. target/criterion/<group>/<test>/new/estimates.json
+              // We'll use the part after 'target/criterion/' and before '/new'
+              const relativePath = file.substring('target/criterion/'.length, file.indexOf('/new/'));
+              // This might give something like "global_queue/global_queue_10k_tasks"
+              const benchmarkName = relativePath.replace(/\\/g, '/'); // Ensure forward slashes even on Windows
+
+              // Extract the mean estimate (e.g., nanoseconds)
+              const mean_ns = estimates.mean ? estimates.mean.point_estimate : null;
+              if (mean_ns !== null) {
+                benchmarks.push({
+                  name: benchmarkName,
+                  value: mean_ns,
+                  unit: "ns"
+                });
+              }
+            }
+
+            fs.mkdirSync('bench_results', { recursive: true });
+            fs.writeFileSync('bench_results/results.json', JSON.stringify(benchmarks, null, 2));
+            return { benchmarks };
 
       - name: Upload Benchmark Results
         uses: actions/upload-artifact@v3
@@ -52,11 +93,10 @@ jobs:
             const benchmarks = JSON.parse(results);
 
             // Create a Markdown table
-            const header = `| Benchmark Name | Value | Unit |\n|---|---|---|`;
+            const header = "| Benchmark Name | Value (ns) | Unit |\n|---|---|---|";
             const rows = benchmarks.map(b => `| ${b.name} | ${b.value} | ${b.unit} |`).join('\n');
             const table = `${header}\n${rows}`;
 
-            // Post comment to PR
             const comment = `### Benchmark Results\n${table}`;
             github.rest.issues.createComment({
               issue_number: context.payload.pull_request.number,
@@ -90,13 +130,43 @@ jobs:
           cargo build --release
           cargo test
 
-      - name: Create Benchmark Results Directory
-        run: |
-          mkdir -p bench_results 
-          touch bench_results/results.json
-
       - name: Run Benchmarks
-        run: cargo bench --features bench -- -- --output-format=json > bench_results/results.json
+        run: cargo bench --features bench
+
+      - name: Parse Benchmark Results
+        run: |
+          npm install glob
+        shell: bash
+
+      - name: Create Consolidated Benchmark Results
+        id: create_results
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const glob = require('glob');
+
+            const files = glob.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
+
+            const benchmarks = [];
+            for (const file of files) {
+              const estimates = JSON.parse(fs.readFileSync(file, 'utf8'));
+              const relativePath = file.substring('target/criterion/'.length, file.indexOf('/new/'));
+              const benchmarkName = relativePath.replace(/\\/g, '/');
+              const mean_ns = estimates.mean ? estimates.mean.point_estimate : null;
+              if (mean_ns !== null) {
+                benchmarks.push({
+                  name: benchmarkName,
+                  value: mean_ns,
+                  unit: "ns"
+                });
+              }
+            }
+
+            fs.mkdirSync('bench_results', { recursive: true });
+            fs.writeFileSync('bench_results/results.json', JSON.stringify(benchmarks, null, 2));
+            return { benchmarks };
 
       - name: Upload Benchmark Results
         uses: actions/upload-artifact@v3
@@ -113,12 +183,10 @@ jobs:
             const results = fs.readFileSync('bench_results/results.json', 'utf8');
             const benchmarks = JSON.parse(results);
 
-            // Create a Markdown table
-            const header = `| Benchmark Name | Value | Unit |\n|---|---|---|`;
+            const header = "| Benchmark Name | Value (ns) | Unit |\n|---|---|---|";
             const rows = benchmarks.map(b => `| ${b.name} | ${b.value} | ${b.unit} |`).join('\n');
             const table = `${header}\n${rows}`;
 
-            // Post comment to PR
             const comment = `### Benchmark Results\n${table}`;
             github.rest.issues.createComment({
               issue_number: context.payload.pull_request.number,
