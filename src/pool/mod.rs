@@ -1,5 +1,16 @@
+//! Thread pool implementation with configurable task fetching modes.
+//!
+//! This module defines a thread pool that supports various task scheduling
+//! and fetching strategies, such as:
+//! - Global queue-based task distribution.
+//! - Work-stealing for efficient load balancing.
+//! - Priority-based task scheduling with optional work-stealing.
+//!
+//! It also provides a `ThreadPoolBuilder` to configure and create a thread pool
+//! with the desired settings.
+
 pub mod modes;
-pub mod task;
+pub(crate) mod task;
 mod worker;
 
 use std::sync::{
@@ -7,13 +18,12 @@ use std::sync::{
     Arc,
 };
 
+use super::queue::TaskQueue;
+use super::stealer::work_stealing_queues;
 use crate::{
     metrics::MetricsCollector, priority_stealer::prioritized_work_stealing_queues,
     queue::PriorityQueue,
 };
-
-use super::queue::TaskQueue;
-use super::stealer::work_stealing_queues;
 use modes::{
     GlobalQueueMode, NonPriorityTaskFetchMode, PriorityGlobalQueueMode, PriorityTaskFetchMode,
     PriorityWorkStealingMode, TaskFetchMode, WorkStealingMode,
@@ -21,17 +31,31 @@ use modes::{
 use task::{spawn_task, BoxedTask, Priority, PriorityTask, TaskHandle};
 use worker::{priority_worker_loop, worker_loop, WorkerHandle};
 
+/// Represents the type of task submission for the thread pool.
+///
+/// This determines how tasks are added to the pool, either as functions
+/// or as structured tasks with priorities.
 pub enum SubmitTaskType {
-    Function(Arc<dyn Fn(BoxedTask) + Send + Sync>), // For dynamic dispatch
-    Struct(Arc<dyn Fn(PriorityTask) + Send + Sync>), // For a specific struct
+    /// Task submission for non-priority tasks using dynamic dispatch.
+    Function(Arc<dyn Fn(BoxedTask) + Send + Sync>),
+    /// Task submission for priority-based tasks.
+    Struct(Arc<dyn Fn(PriorityTask) + Send + Sync>),
 }
 
+/// Represents the type of task fetching for the thread pool.
+///
+/// This determines how tasks are fetched from the pool for execution.
 pub enum FetchTaskType {
+    /// Task fetching for non-priority tasks.
     Function(Arc<dyn Fn(usize) -> Option<BoxedTask> + Send + Sync>),
+    /// Task fetching for priority-based tasks.
     Struct(Arc<dyn Fn(usize) -> Option<PriorityTask> + Send + Sync>),
 }
 
-/// A configurable thread pool that can operate with a simple global queue or in work-stealing mode.
+/// A configurable thread pool that can operate with a global queue or in work-stealing mode.
+///
+/// The thread pool is generic over the `TaskFetchMode`, allowing different strategies for
+/// task scheduling and execution.
 pub struct ThreadPool<M: TaskFetchMode> {
     running: Arc<AtomicBool>,
     workers: Vec<WorkerHandle>,
@@ -43,6 +67,13 @@ pub struct ThreadPool<M: TaskFetchMode> {
 }
 
 impl<M: NonPriorityTaskFetchMode> ThreadPool<M> {
+    /// Submits a task to the thread pool and returns a handle to retrieve its result.
+    ///
+    /// # Arguments
+    /// - `f`: A closure representing the task to execute.
+    ///
+    /// # Returns
+    /// A `TaskHandle<T>` for accessing the task's result.
     pub fn spawn<F, T>(&self, f: F) -> TaskHandle<T>
     where
         F: FnOnce() -> T + Send + 'static,
@@ -61,6 +92,14 @@ impl<M: NonPriorityTaskFetchMode> ThreadPool<M> {
 }
 
 impl<M: PriorityTaskFetchMode> ThreadPool<M> {
+    /// Submits a task with a priority to the thread pool and returns a handle to retrieve its result.
+    ///
+    /// # Arguments
+    /// - `f`: A closure representing the task to execute.
+    /// - `priority`: The priority of the task, where lower values indicate higher priority.
+    ///
+    /// # Returns
+    /// A `TaskHandle<T>` for accessing the task's result.
     pub fn spawn_with_priority<F, T>(&self, f: F, priority: usize) -> TaskHandle<T>
     where
         F: FnOnce() -> T + Send + 'static,
@@ -81,6 +120,7 @@ impl<M: PriorityTaskFetchMode> ThreadPool<M> {
 }
 
 impl<M: TaskFetchMode> ThreadPool<M> {
+    /// Shuts down the thread pool, stopping all workers and cleaning up resources.
     pub fn shutdown(mut self) {
         self.running.store(false, Ordering::Release);
         for worker in &mut self.workers {
@@ -88,17 +128,71 @@ impl<M: TaskFetchMode> ThreadPool<M> {
         }
     }
 
+    /// Returns the name of the task fetching mode used by the thread pool.
     pub fn mode(&self) -> &str {
         self.mode.mode()
     }
 }
-/// States for the ThreadPoolBuilder
-pub struct DefaultModeState; // no features selected
-pub struct WorkStealingState; // work_stealing = true, priority = false
-pub struct PriorityState; // priority = true, work_stealing = false
-pub struct PriorityWorkStealingState; // priority = true, work_stealing = true
 
-/// Typed-state Builder Pattern
+/// States for the `ThreadPoolBuilder`.
+///
+/// The `ThreadPoolBuilder` uses a typed-state pattern to enforce proper configuration
+/// of the thread pool before building it. Each state represents a specific configuration
+/// combination, ensuring that invalid combinations are caught at compile time.
+
+/// The default state for the `ThreadPoolBuilder`.
+///
+/// In this state:
+/// - No specific features are enabled.
+/// - The thread pool uses a global queue to manage tasks.
+/// - Tasks are processed in the order they are submitted (FIFO).
+///
+/// This state is the starting point of the builder and represents the simplest configuration.
+pub struct DefaultModeState;
+
+/// The work-stealing state for the `ThreadPoolBuilder`.
+///
+/// In this state:
+/// - Work-stealing is enabled, which means each worker has its own local queue.
+/// - If a worker's local queue is empty, it can steal tasks from other workers' queues.
+/// - Priority-based task scheduling is not enabled in this state.
+/// - Tasks are processed in the order they are submitted to the local or global queues.
+///
+/// Work-stealing is useful for load balancing, as idle workers can take tasks
+/// from busy workers, improving overall throughput.
+pub struct WorkStealingState;
+
+/// The priority-based state for the `ThreadPoolBuilder`.
+///
+/// In this state:
+/// - Priority-based task scheduling is enabled.
+/// - All tasks are stored in a global priority queue, where tasks with lower
+///   priority values are executed before those with higher priority values.
+/// - Work-stealing is not enabled in this state.
+/// - Tasks are executed strictly based on their priorities, regardless of the
+///   order in which they are submitted.
+///
+/// This state is suitable for scenarios where task prioritization is critical, such
+/// as time-sensitive computations or real-time systems.
+pub struct PriorityState;
+
+/// The priority-based work-stealing state for the `ThreadPoolBuilder`.
+///
+/// In this state:
+/// - Both priority-based task scheduling and work-stealing are enabled.
+/// - Each worker has its own local priority queue to store and process tasks.
+/// - If a worker's local queue is empty, it can steal tasks from other workers'
+///   queues, prioritizing tasks with lower priority values.
+/// - Tasks are executed based on their priorities, with lower priority values
+///   being processed first.
+///
+/// This state is ideal for systems that require both task prioritization and dynamic
+/// load balancing, combining the benefits of both approaches.
+pub struct PriorityWorkStealingState;
+
+/// A builder for configuring and creating a thread pool.
+///
+/// This uses a typed-state builder pattern to enforce proper configuration.
 pub struct ThreadPoolBuilder<S = GlobalQueueMode> {
     num_threads: usize,
     metrics_collector: Option<Arc<dyn MetricsCollector>>,
@@ -106,13 +200,27 @@ pub struct ThreadPoolBuilder<S = GlobalQueueMode> {
 }
 
 impl<S> ThreadPoolBuilder<S> {
+    /// Adds a metrics collector to the builder.
+    ///
+    /// # Arguments
+    /// - `collector`: An `Arc<dyn MetricsCollector>` for monitoring the thread pool's behavior.
     pub fn with_metrics_collector(mut self, collector: Arc<dyn MetricsCollector>) -> Self {
         self.metrics_collector = Some(collector);
+        self
+    }
+
+    /// Sets the number of threads for the thread pool.
+    ///
+    /// # Arguments
+    /// - `n`: The number of threads to create in the thread pool.
+    pub fn num_threads(mut self, n: usize) -> Self {
+        self.num_threads = n;
         self
     }
 }
 
 impl ThreadPoolBuilder<DefaultModeState> {
+    /// Creates a new `ThreadPoolBuilder` with default settings.
     pub fn new() -> Self {
         Self {
             num_threads: 4,
@@ -121,11 +229,7 @@ impl ThreadPoolBuilder<DefaultModeState> {
         }
     }
 
-    pub fn num_threads(mut self, n: usize) -> Self {
-        self.num_threads = n;
-        self
-    }
-
+    /// Configures the builder to enable work-stealing mode.
     pub fn set_work_stealing(self) -> ThreadPoolBuilder<WorkStealingState> {
         ThreadPoolBuilder {
             num_threads: self.num_threads,
@@ -134,6 +238,7 @@ impl ThreadPoolBuilder<DefaultModeState> {
         }
     }
 
+    /// Configures the builder to enable priority-based task scheduling.
     pub fn enable_priority(self) -> ThreadPoolBuilder<PriorityState> {
         ThreadPoolBuilder {
             num_threads: self.num_threads,
@@ -142,6 +247,7 @@ impl ThreadPoolBuilder<DefaultModeState> {
         }
     }
 
+    /// Builds the thread pool with the default global queue mode.
     pub fn build(self) -> ThreadPool<GlobalQueueMode> {
         let running = Arc::new(AtomicBool::new(true));
 
@@ -209,6 +315,7 @@ impl ThreadPoolBuilder<DefaultModeState> {
 }
 
 impl ThreadPoolBuilder<WorkStealingState> {
+    /// Configures the builder to enable priority-based task scheduling.
     pub fn enable_priority(self) -> ThreadPoolBuilder<PriorityWorkStealingState> {
         ThreadPoolBuilder {
             num_threads: self.num_threads,
@@ -217,6 +324,7 @@ impl ThreadPoolBuilder<WorkStealingState> {
         }
     }
 
+    /// Builds the thread pool with work-stealing mode.
     pub fn build(self) -> ThreadPool<WorkStealingMode> {
         let running = Arc::new(AtomicBool::new(true));
 
@@ -298,6 +406,7 @@ impl ThreadPoolBuilder<WorkStealingState> {
 }
 
 impl ThreadPoolBuilder<PriorityState> {
+    /// Builds the thread pool with priority global queue mode.
     pub fn build(self) -> ThreadPool<PriorityGlobalQueueMode> {
         let running = Arc::new(AtomicBool::new(true));
 
@@ -367,6 +476,7 @@ impl ThreadPoolBuilder<PriorityState> {
 }
 
 impl ThreadPoolBuilder<PriorityWorkStealingState> {
+    /// Builds the thread pool with priority work-stealing mode.
     pub fn build(self) -> ThreadPool<PriorityWorkStealingMode> {
         let running = Arc::new(AtomicBool::new(true));
 
