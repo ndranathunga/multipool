@@ -57,7 +57,8 @@ jobs:
               const estimates = JSON.parse(fs.readFileSync(file, 'utf8'));
 
               // Split the path into parts
-              const parts = file.split('/');
+              const normalizedFile = file.replace(/\\/g, '/');
+              const parts = normalizedFile.split('/');
               const indexOfCriterion = parts.indexOf('criterion');
               const indexOfNew = parts.indexOf('new');
               
@@ -175,7 +176,9 @@ jobs:
             for (const file of files) {
               const estimates = JSON.parse(fs.readFileSync(file, 'utf8'));
 
-              const parts = file.split('/');
+              // Split the path into parts
+              const normalizedFile = file.replace(/\\/g, '/');
+              const parts = normalizedFile.split('/');
               const indexOfCriterion = parts.indexOf('criterion');
               const indexOfNew = parts.indexOf('new');
               const relevantParts = parts.slice(indexOfCriterion + 1, indexOfNew);
