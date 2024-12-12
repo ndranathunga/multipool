@@ -12,7 +12,7 @@ jobs:
   msrv:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest] # Test on both Linux and Windows
+        os: [ubuntu-latest, windows-latest] 
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
@@ -34,8 +34,6 @@ jobs:
       # Parse benchmark results from target/criterion directories
       - name: Parse Benchmark Results
         run: |
-          # We will use Node.js to parse and gather the benchmark data.
-          # Install glob for easier file matching
           npm install glob
         shell: bash
 
