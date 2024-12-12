@@ -96,7 +96,7 @@ jobs:
           touch bench_results/results.json
 
       - name: Run Benchmarks
-        run: cargo bench --features bench -- --output-format=json > benchmark_results/results.json
+        run: cargo bench --features bench -- --output-format=json > bench_results/results.json
 
       - name: Upload Benchmark Results
         uses: actions/upload-artifact@v3
