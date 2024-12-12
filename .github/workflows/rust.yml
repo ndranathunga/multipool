@@ -46,11 +46,11 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const glob = require('glob');
+            const glob2 = require('glob');
 
             // Find all estimates.json files in the "new" directories
             // Ignore "report" directories
-            const files = glob.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
+            const files = glob2.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
 
             const benchmarks = [];
             for (const file of files) {
@@ -145,9 +145,9 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const glob = require('glob');
+            const glob2 = require('glob');
 
-            const files = glob.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
+            const files = glob2.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
 
             const benchmarks = [];
             for (const file of files) {
