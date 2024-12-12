@@ -23,17 +23,48 @@ jobs:
           toolchain: 1.78.0 # Minimum Supported Rust Version (MSRV)
           override: true
 
-      # - name: Install Criterion for Benchmarks
-      #   run: |
-      #     rustup component add clippy
-
       - name: Build and Test
         run: |
           cargo build --release
           cargo test
 
       - name: Run Benchmarks
-        run: cargo bench --features bench
+        run: cargo bench --features bench -- --output-format=json > bench_results/results.json
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: bench_results/results.json
+
+      - name: Post Benchmark Results on Pull Requests
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('bench_results/results.json', 'utf8');
+            const benchmarks = JSON.parse(results);
+
+            // Create a Markdown table
+            const header = `| Benchmark Name | Value | Unit |\n|---|---|---|`;
+            const rows = benchmarks.map(b => `| ${b.name} | ${b.value} | ${b.unit} |`).join('\n');
+            const table = `${header}\n${rows}`;
+
+            // Post comment to PR
+            const comment = `### Benchmark Results\n${table}`;
+            github.rest.issues.createComment({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Display Benchmark Results in Logs
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "### Benchmark Results"
+          cat bench_results/results.json
 
   latest:
     strategy:
@@ -49,15 +80,45 @@ jobs:
           toolchain: stable
           override: true
 
-      # - name: Install Criterion for Benchmarks
-      #   run: |
-      #     rustup component add clippy
-      #     cargo install cargo-benchcmp # Example, if additional bench tools are needed
-
       - name: Build and Test
         run: |
           cargo build --release
           cargo test
 
       - name: Run Benchmarks
-        run: cargo bench --features bench
+        run: cargo bench --features bench -- --output-format=json > benchmark_results/results.json
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: bench_results/results.json
+
+      - name: Post Benchmark Results on Pull Requests
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('bench_results/results.json', 'utf8');
+            const benchmarks = JSON.parse(results);
+
+            // Create a Markdown table
+            const header = `| Benchmark Name | Value | Unit |\n|---|---|---|`;
+            const rows = benchmarks.map(b => `| ${b.name} | ${b.value} | ${b.unit} |`).join('\n');
+            const table = `${header}\n${rows}`;
+
+            // Post comment to PR
+            const comment = `### Benchmark Results\n${table}`;
+            github.rest.issues.createComment({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Display Benchmark Results in Logs
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "### Benchmark Results"
+          cat bench_results/results.json
