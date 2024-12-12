@@ -119,7 +119,7 @@ jobs:
             const rows = benchmarks.map(b => `| ${b.name} | ${b.value} | ${b.unit} |`).join('\n');
             const table = `${header}\n${rows}`;
 
-            const comment = `### Benchmark Results\n${table}`;
+            const comment = `### Benchmark Results (MSRV)- ${{ matrix.os }}\n${table}`;
             github.rest.issues.createComment({
               issue_number: context.payload.pull_request.number,
               owner: context.repo.owner,
@@ -227,7 +227,7 @@ jobs:
             const rows = benchmarks.map(b => `| ${b.name} | ${b.value} | ${b.unit} |`).join('\n');
             const table = `${header}\n${rows}`;
 
-            const comment = `### Benchmark Results\n${table}`;
+            const comment = `### Benchmark Results (Latest) - ${{ matrix.os }}\n${table}`;
             github.rest.issues.createComment({
               issue_number: context.payload.pull_request.number,
               owner: context.repo.owner,
