@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use multipool::{pool::ThreadPoolBuilder, run_traditional};
+use rand::Rng;
 
 /// A CPU-bound task: compute the sum of a range.
 fn cpu_task() -> u64 {
@@ -52,6 +53,39 @@ fn benchmark_global_queue(c: &mut Criterion) {
         )
     });
 
+    group.bench_function("global_queue_with_priority_10k_tasks", |b| {
+        b.iter_batched(
+            || {
+                // Prepare a fresh pool and tasks each iteration
+                let pool = ThreadPoolBuilder::new()
+                    .num_threads(num_threads)
+                    .enable_priority()
+                    .build();
+                let tasks = prepare_tasks(num_tasks);
+                (pool, tasks)
+            },
+            |(pool, tasks)| {
+                let handles: Vec<_> = tasks
+                    .into_iter()
+                    .map(|task| {
+                        pool.spawn_with_priority(
+                            move || {
+                                task();
+                            },
+                            rand::thread_rng().gen_range(0..=10),
+                        )
+                    })
+                    .collect();
+
+                for h in handles {
+                    let _ = h.join();
+                }
+                pool.shutdown();
+            },
+            BatchSize::LargeInput,
+        )
+    });
+
     group.finish();
 }
 
@@ -79,6 +113,39 @@ fn benchmark_work_stealing(c: &mut Criterion) {
                         pool.spawn(move || {
                             task();
                         })
+                    })
+                    .collect();
+
+                for h in handles {
+                    let _ = h.join();
+                }
+                pool.shutdown();
+            },
+            BatchSize::LargeInput,
+        )
+    });
+
+    group.bench_function("work_stealing_with_priority_10k_tasks", |b| {
+        b.iter_batched(
+            || {
+                let pool = ThreadPoolBuilder::new()
+                    .num_threads(num_threads)
+                    .set_work_stealing()
+                    .enable_priority()
+                    .build();
+                let tasks = prepare_tasks(num_tasks);
+                (pool, tasks)
+            },
+            |(pool, tasks)| {
+                let handles: Vec<_> = tasks
+                    .into_iter()
+                    .map(|task| {
+                        pool.spawn_with_priority(
+                            move || {
+                                task();
+                            },
+                            rand::thread_rng().gen_range(0..=10),
+                        )
                     })
                     .collect();
 
