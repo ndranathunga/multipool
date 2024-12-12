@@ -46,29 +46,49 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const glob2 = require('glob');
+            const glob = require('glob');
 
-            // Find all estimates.json files in the "new" directories
-            // Ignore "report" directories
-            const files = glob2.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
+            const files = glob.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
 
             const benchmarks = [];
             for (const file of files) {
               const estimates = JSON.parse(fs.readFileSync(file, 'utf8'));
-              // The benchmark name can be derived from the directory structure
-              // e.g. target/criterion/<group>/<test>/new/estimates.json
-              // We'll use the part after 'target/criterion/' and before '/new'
-              const relativePath = file.substring('target/criterion/'.length, file.indexOf('/new/'));
-              // This might give something like "global_queue/global_queue_10k_tasks"
-              const benchmarkName = relativePath.replace(/\\/g, '/'); // Ensure forward slashes even on Windows
 
-              // Extract the mean estimate (e.g., nanoseconds)
-              const mean_ns = estimates.mean ? estimates.mean.point_estimate : null;
+              // Split the path into parts
+              const parts = file.split('/');
+              const indexOfCriterion = parts.indexOf('criterion');
+              const indexOfNew = parts.indexOf('new');
+              
+              // Extract the part(s) of the path between 'criterion' and 'new'
+              // For example: target/criterion/<group>/<test>/new/estimates.json
+              // becomes <group>/<test>
+              const relevantParts = parts.slice(indexOfCriterion + 1, indexOfNew);
+              const benchmarkName = relevantParts.join('/');
+
+              // Extract the mean estimate in ns
+              let mean_ns = estimates.mean ? estimates.mean.point_estimate : null;
               if (mean_ns !== null) {
+                // Convert units if needed
+                let value = mean_ns;
+                let unit = 'ns';
+
+                // If ≥ 1 second
+                if (value >= 1e9) {
+                  value = value / 1e9; // ns to s
+                  unit = 's';
+                } else if (value >= 1e6) {
+                  // If ≥ 1 ms but < 1 s
+                  value = value / 1e6; // ns to ms
+                  unit = 'ms';
+                }
+                
+                // Round to 3 decimal places
+                value = parseFloat(value.toFixed(3));
+
                 benchmarks.push({
                   name: benchmarkName,
-                  value: mean_ns,
-                  unit: "ns"
+                  value: value,
+                  unit: unit
                 });
               }
             }
@@ -80,7 +100,7 @@ jobs:
       - name: Upload Benchmark Results
         uses: actions/upload-artifact@v3
         with:
-          name: benchmark-results
+          name: msrv-benchmark-results
           path: bench_results/results.json
 
       - name: Post Benchmark Results on Pull Requests
@@ -93,7 +113,7 @@ jobs:
             const benchmarks = JSON.parse(results);
 
             // Create a Markdown table
-            const header = "| Benchmark Name | Value (ns) | Unit |\n|---|---|---|";
+            const header = "| Benchmark Name | Value | Unit |\n|---|---|---|";
             const rows = benchmarks.map(b => `| ${b.name} | ${b.value} | ${b.unit} |`).join('\n');
             const table = `${header}\n${rows}`;
 
@@ -145,21 +165,39 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const glob2 = require('glob');
+            const glob = require('glob');
 
-            const files = glob2.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
+            const files = glob.sync('target/criterion/**/new/estimates.json', { ignore: '**/report/**' });
 
             const benchmarks = [];
             for (const file of files) {
               const estimates = JSON.parse(fs.readFileSync(file, 'utf8'));
-              const relativePath = file.substring('target/criterion/'.length, file.indexOf('/new/'));
-              const benchmarkName = relativePath.replace(/\\/g, '/');
-              const mean_ns = estimates.mean ? estimates.mean.point_estimate : null;
+
+              const parts = file.split('/');
+              const indexOfCriterion = parts.indexOf('criterion');
+              const indexOfNew = parts.indexOf('new');
+              const relevantParts = parts.slice(indexOfCriterion + 1, indexOfNew);
+              const benchmarkName = relevantParts.join('/');
+
+              let mean_ns = estimates.mean ? estimates.mean.point_estimate : null;
               if (mean_ns !== null) {
+                let value = mean_ns;
+                let unit = 'ns';
+
+                if (value >= 1e9) {
+                  value = value / 1e9; // convert ns to s
+                  unit = 's';
+                } else if (value >= 1e6) {
+                  value = value / 1e6; // convert ns to ms
+                  unit = 'ms';
+                }
+
+                value = parseFloat(value.toFixed(3));
+
                 benchmarks.push({
                   name: benchmarkName,
-                  value: mean_ns,
-                  unit: "ns"
+                  value: value,
+                  unit: unit
                 });
               }
             }
@@ -171,7 +209,7 @@ jobs:
       - name: Upload Benchmark Results
         uses: actions/upload-artifact@v3
         with:
-          name: benchmark-results
+          name: latest-benchmark-results
           path: bench_results/results.json
 
       - name: Post Benchmark Results on Pull Requests
@@ -183,7 +221,7 @@ jobs:
             const results = fs.readFileSync('bench_results/results.json', 'utf8');
             const benchmarks = JSON.parse(results);
 
-            const header = "| Benchmark Name | Value (ns) | Unit |\n|---|---|---|";
+            const header = "| Benchmark Name | Value | Unit |\n|---|---|---|";
             const rows = benchmarks.map(b => `| ${b.name} | ${b.value} | ${b.unit} |`).join('\n');
             const table = `${header}\n${rows}`;
 
