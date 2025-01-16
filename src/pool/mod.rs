@@ -134,6 +134,9 @@ impl<M: TaskFetchMode> ThreadPool<M> {
     }
 }
 
+/// A trait for defining the states of the `ThreadPoolBuilder`.
+pub trait IBuilderState {}
+
 /// States for the `ThreadPoolBuilder`.
 ///
 /// The `ThreadPoolBuilder` uses a typed-state pattern to enforce proper configuration
@@ -150,6 +153,8 @@ impl<M: TaskFetchMode> ThreadPool<M> {
 /// This state is the starting point of the builder and represents the simplest configuration.
 pub struct DefaultModeState;
 
+impl IBuilderState for DefaultModeState {}
+
 /// The work-stealing state for the `ThreadPoolBuilder`.
 ///
 /// In this state:
@@ -161,6 +166,8 @@ pub struct DefaultModeState;
 /// Work-stealing is useful for load balancing, as idle workers can take tasks
 /// from busy workers, improving overall throughput.
 pub struct WorkStealingState;
+
+impl IBuilderState for WorkStealingState {}
 
 /// The priority-based state for the `ThreadPoolBuilder`.
 ///
@@ -176,6 +183,8 @@ pub struct WorkStealingState;
 /// as time-sensitive computations or real-time systems.
 pub struct PriorityState;
 
+impl IBuilderState for PriorityState {}
+
 /// The priority-based work-stealing state for the `ThreadPoolBuilder`.
 ///
 /// In this state:
@@ -190,16 +199,18 @@ pub struct PriorityState;
 /// load balancing, combining the benefits of both approaches.
 pub struct PriorityWorkStealingState;
 
+impl IBuilderState for PriorityWorkStealingState {}
+
 /// A builder for configuring and creating a thread pool.
 ///
 /// This uses a typed-state builder pattern to enforce proper configuration.
-pub struct ThreadPoolBuilder<S = GlobalQueueMode> {
+pub struct ThreadPoolBuilder<S: IBuilderState = DefaultModeState> {
     num_threads: usize,
     metrics_collector: Option<Arc<dyn MetricsCollector>>,
     _state: std::marker::PhantomData<S>,
 }
 
-impl<S> ThreadPoolBuilder<S> {
+impl<S: IBuilderState> ThreadPoolBuilder<S> {
     /// Adds a metrics collector to the builder.
     ///
     /// # Arguments
